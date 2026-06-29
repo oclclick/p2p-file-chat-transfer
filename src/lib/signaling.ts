@@ -46,14 +46,9 @@ export class SignalingClient {
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const hostname = window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : '';
     
-    // Default to port 3001 for local signaling server in development
-    if (process.env.NODE_ENV === 'development' || hostname === 'localhost' || hostname === '127.0.0.1') {
-      return `${protocol}//${hostname}:3001`;
-    }
-    
-    // Fallback to same host in production
-    return `${protocol}//${window.location.host}`;
+    return `${protocol}//${hostname}${port}`;
   }
 
   public connect(): Promise<void> {
