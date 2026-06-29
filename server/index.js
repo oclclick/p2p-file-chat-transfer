@@ -31,14 +31,16 @@ function generateRoomCode() {
 }
 
 wss.on('connection', (ws) => {
-  console.log('New signaling client connected');
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] New signaling client connected`);
 
   ws.on('message', (message) => {
     try {
       const payload = JSON.parse(message);
       handleMessage(ws, payload);
     } catch (err) {
-      console.error('Error handling websocket message:', err);
+      const errTimestamp = new Date().toISOString();
+      console.error(`[${errTimestamp}] Error handling websocket message:`, err);
       sendError(ws, 'Invalid message format');
     }
   });
@@ -48,7 +50,8 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('error', (err) => {
-    console.error('Socket error:', err);
+    const errTimestamp = new Date().toISOString();
+    console.error(`[${errTimestamp}] Socket error:`, err);
     handleDisconnect(ws);
   });
 });
@@ -57,6 +60,10 @@ function handleMessage(ws, payload) {
   const { type } = payload;
 
   switch (type) {
+    case 'ping':
+      ws.send(JSON.stringify({ type: 'pong' }));
+      break;
+
     case 'create_room':
       handleCreateRoom(ws);
       break;
@@ -91,7 +98,7 @@ function handleCreateRoom(ws) {
   rooms.set(roomCode, [{ ws, id: peerId }]);
   clients.set(ws, { roomCode, peerId });
 
-  console.log(`Room created: ${roomCode} by peer ${peerId}`);
+  console.log(`[${new Date().toISOString()}] Room created: ${roomCode} by peer ${peerId}`);
   ws.send(JSON.stringify({
     type: 'room_created',
     code: roomCode,
@@ -112,7 +119,7 @@ function handleJoinRoom(ws, rawCode) {
   }
 
   if (!rooms.has(roomCode)) {
-    console.log(`Join failed: room ${roomCode} not found`);
+    console.log(`[${new Date().toISOString()}] Join failed: room ${roomCode} not found`);
     return ws.send(JSON.stringify({
       type: 'error',
       code: 'ROOM_NOT_FOUND',
@@ -123,7 +130,7 @@ function handleJoinRoom(ws, rawCode) {
   const peers = rooms.get(roomCode);
 
   if (peers.length >= 2) {
-    console.log(`Join failed: room ${roomCode} is full`);
+    console.log(`[${new Date().toISOString()}] Join failed: room ${roomCode} is full`);
     return ws.send(JSON.stringify({
       type: 'error',
       code: 'ROOM_FULL',
@@ -135,7 +142,7 @@ function handleJoinRoom(ws, rawCode) {
   peers.push({ ws, id: peerId });
   clients.set(ws, { roomCode, peerId });
 
-  console.log(`Peer ${peerId} joined room ${roomCode}`);
+  console.log(`[${new Date().toISOString()}] Peer ${peerId} joined room ${roomCode}`);
 
   // Notify joiner that they joined successfully
   ws.send(JSON.stringify({
@@ -195,7 +202,7 @@ function handleDisconnect(ws) {
     if (updatedPeers.length === 0) {
       // Room is empty, delete it
       rooms.delete(roomCode);
-      console.log(`Room ${roomCode} is empty and has been deleted`);
+      console.log(`[${new Date().toISOString()}] Room ${roomCode} is empty and has been deleted`);
     } else {
       // Notify the remaining peer that their partner left
       rooms.set(roomCode, updatedPeers);
@@ -203,7 +210,7 @@ function handleDisconnect(ws) {
       remainingPeer.ws.send(JSON.stringify({
         type: 'peer_disconnected'
       }));
-      console.log(`Peer ${peerId} left room ${roomCode}. Remaining peer notified.`);
+      console.log(`[${new Date().toISOString()}] Peer ${peerId} left room ${roomCode}. Remaining peer notified.`);
     }
   }
 }
@@ -216,5 +223,5 @@ function sendError(ws, message) {
 }
 
 server.listen(PORT, () => {
-  console.log(`Signaling server listening on port ${PORT}`);
+  console.log(`[${new Date().toISOString()}] Signaling server listening on port ${PORT}`);
 });
