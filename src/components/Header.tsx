@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings2, Zap, ArrowLeftRight } from 'lucide-react';
+import { Settings2, ArrowLeftRight } from 'lucide-react';
 import { ConnectionState } from '../types';
 
 interface HeaderProps {

@@ -7,7 +7,7 @@ const BUFFERED_AMOUNT_THRESHOLD = 1048576; // 1 MB backpressure limit
 export interface WebRTCEvents {
   onConnectionStateChange: (state: ConnectionState) => void;
   onMessageReceived: (message: ChatMessage) => void;
-  onSignalingMessage: (msg: any) => void;
+  onSignalingMessage: (msg: unknown) => void;
   onFileTransferUpdate: (transfer: FileTransfer) => void;
   onToast: (message: string, type: 'info' | 'success' | 'warning' | 'error') => void;
 }
@@ -28,6 +28,7 @@ export class WebRTCManager {
   private currentSenderFile: File | null = null;
   private currentSenderIndex = 0;
   private isSenderCancelled = false;
+  private isReadingChunk = false;
   private senderTimer: NodeJS.Timeout | null = null;
   
   // File Transfer State (Receiver)
@@ -93,8 +94,8 @@ export class WebRTCManager {
           }
         };
       }
-    } catch (error: any) {
-      this.events.onToast(`RTC connection setup failed: ${error.message}`, 'error');
+    } catch (error) {
+      this.events.onToast(`RTC connection setup failed: ${(error as Error).message}`, 'error');
       this.events.onConnectionStateChange('failed');
     }
   }
@@ -199,8 +200,8 @@ export class WebRTCManager {
         type: 'offer',
         sdp: offer.sdp
       });
-    } catch (err: any) {
-      this.events.onToast(`Create offer failed: ${err.message}`, 'error');
+    } catch (err) {
+      this.events.onToast(`Create offer failed: ${(err as Error).message}`, 'error');
       this.events.onConnectionStateChange('failed');
     }
   }
@@ -224,8 +225,8 @@ export class WebRTCManager {
         type: 'answer',
         sdp: answer.sdp
       });
-    } catch (err: any) {
-      this.events.onToast(`Handle offer failed: ${err.message}`, 'error');
+    } catch (err) {
+      this.events.onToast(`Handle offer failed: ${(err as Error).message}`, 'error');
       this.events.onConnectionStateChange('failed');
     }
   }
@@ -240,8 +241,8 @@ export class WebRTCManager {
         await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
       }
       this.iceCandidateQueue = [];
-    } catch (err: any) {
-      this.events.onToast(`Handle answer failed: ${err.message}`, 'error');
+    } catch (err) {
+      this.events.onToast(`Handle answer failed: ${(err as Error).message}`, 'error');
       this.events.onConnectionStateChange('failed');
     }
   }
@@ -254,7 +255,7 @@ export class WebRTCManager {
       } else {
         await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Add ICE candidate failed', err);
     }
   }
@@ -277,10 +278,12 @@ export class WebRTCManager {
 
   // --- File Transfer Control Messages ---
 
-  private async handleFileControlMessage(msg: any) {
+  private async handleFileControlMessage(rawMsg: unknown) {
+    const msg = rawMsg as { type: string; metadata?: FileMetadata; fileId?: string };
     switch (msg.type) {
       case 'header':
         // Receiver side gets details of incoming file
+        if (!msg.metadata) return;
         this.currentReceiverMetadata = msg.metadata;
         this.currentReceiverIndex = 0;
         this.bytesReceived = 0;
@@ -376,11 +379,11 @@ export class WebRTCManager {
             this.activeTransfer.downloadUrl = url;
             this.events.onFileTransferUpdate({ ...this.activeTransfer });
             this.events.onToast('File transfer completed!', 'success');
-          } catch (err: any) {
+          } catch (err) {
             this.activeTransfer.state = 'failed';
-            this.activeTransfer.error = `Assembly failed: ${err.message}`;
+            this.activeTransfer.error = `Assembly failed: ${(err as Error).message}`;
             this.events.onFileTransferUpdate({ ...this.activeTransfer });
-            this.events.onToast(`File assembly failed: ${err.message}`, 'error');
+            this.events.onToast(`File assembly failed: ${(err as Error).message}`, 'error');
           } finally {
             // Keep the data in IndexedDB until download or reset, clean it up then.
           }
@@ -447,6 +450,9 @@ export class WebRTCManager {
     if (this.isSenderCancelled || !this.currentSenderFile || !this.fileChannel || this.fileChannel.readyState !== 'open') {
       return;
     }
+    if (this.isReadingChunk) {
+      return;
+    }
 
     const file = this.currentSenderFile;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -462,8 +468,10 @@ export class WebRTCManager {
       const end = Math.min(start + CHUNK_SIZE, file.size);
       const slice = file.slice(start, end);
 
+      this.isReadingChunk = true;
       const reader = new FileReader();
       reader.onload = (e) => {
+        this.isReadingChunk = false;
         if (e.target?.result instanceof ArrayBuffer) {
           try {
             if (this.fileChannel && this.fileChannel.readyState === 'open') {
@@ -494,8 +502,8 @@ export class WebRTCManager {
                 this.sendNextChunk();
               }
             }
-          } catch (err: any) {
-            this.handleSenderError(err.message);
+          } catch (err) {
+            this.handleSenderError((err as Error).message);
           }
         }
       };
@@ -522,7 +530,6 @@ export class WebRTCManager {
   private startSenderSpeedTimer() {
     this.cleanupSenderTimer();
     let lastBytes = 0;
-    const startTime = Date.now();
 
     this.senderTimer = setInterval(() => {
       if (!this.activeTransfer || !this.currentSenderFile) return;
@@ -646,8 +653,8 @@ export class WebRTCManager {
           this.events.onFileTransferUpdate({ ...this.activeTransfer });
         }
       }
-    } catch (err: any) {
-      this.handleReceiverError(`IndexedDB Save Error: ${err.message}`);
+    } catch (err) {
+      this.handleReceiverError(`IndexedDB Save Error: ${(err as Error).message}`);
     }
   }
 

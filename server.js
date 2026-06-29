@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
@@ -43,8 +44,27 @@ app.prepare().then(() => {
     }
   });
 
-  // Attach WebSocket server to the same HTTP server
-  const wss = new WebSocketServer({ server });
+  // Attach WebSocket server explicitly
+  const wss = new WebSocketServer({ noServer: true });
+
+  // Start the server FIRST.
+  // Next.js patches server.listen to inject its HMR 'upgrade' listener.
+  const signalingServer = createServer();
+  signalingServer.on('upgrade', (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  });
+  
+  const signalingPort = process.env.SIGNALING_PORT || 3001;
+  signalingServer.listen(signalingPort, () => {
+    console.log(`> Signaling server ready on ws://${hostname}:${signalingPort}`);
+  });
+
+  server.listen(port, (err) => {
+    if (err) throw err;
+    console.log(`> Ready on http://${hostname}:${port}`);
+  });
 
   wss.on('connection', (ws) => {
     const timestamp = new Date().toISOString();
@@ -83,17 +103,56 @@ app.prepare().then(() => {
       case 'create_room':
         handleCreateRoom(ws);
         break;
-
       case 'join_room':
         handleJoinRoom(ws, payload.code);
         break;
-
+      case 'reconnect_room':
+        handleReconnectRoom(ws, payload.code, payload.peerId, payload.isInitiator);
+        break;
       case 'signal':
         handleSignal(ws, payload.data);
         break;
 
       default:
         sendError(ws, `Unknown message type: ${type}`);
+    }
+  }
+
+  function handleReconnectRoom(ws, roomCode, peerId, isInitiator) {
+    if (clients.has(ws)) {
+      handleDisconnect(ws);
+    }
+
+    let peers = rooms.get(roomCode) || [];
+
+    // If room is full, and this peer is not one of them, reject.
+    // However, since we deleted them on disconnect, peers length is 0 or 1.
+    if (peers.length >= 2) {
+      ws.send(JSON.stringify({ type: 'error', code: 'ROOM_FULL', message: 'Room is full' }));
+      return;
+    }
+
+    peers.push({ ws, id: peerId });
+    rooms.set(roomCode, peers);
+    clients.set(ws, { roomCode, peerId });
+
+    console.log(`[${new Date().toISOString()}] Peer ${peerId} reconnected to room ${roomCode}`);
+    
+    // Send appropriate response based on their role
+    ws.send(JSON.stringify({
+      type: isInitiator ? 'room_created' : 'room_joined',
+      code: roomCode,
+      peerId: peerId,
+      isInitiator: isInitiator
+    }));
+
+    // If there is another peer already in the room, notify them
+    const otherPeer = peers.find(p => p.id !== peerId);
+    if (otherPeer) {
+      otherPeer.ws.send(JSON.stringify({
+        type: 'peer_joined',
+        peerId: peerId
+      }));
     }
   }
 
@@ -110,7 +169,7 @@ app.prepare().then(() => {
     }
 
     const peerId = 'creator_' + Math.random().toString(36).substr(2, 9);
-    
+
     rooms.set(roomCode, [{ ws, id: peerId }]);
     clients.set(ws, { roomCode, peerId });
 
@@ -174,7 +233,7 @@ app.prepare().then(() => {
       type: 'peer_joined',
       peerId
     }));
-    
+
     // Send room_joined success status to creator as well
     creator.ws.send(JSON.stringify({
       type: 'room_ready',
@@ -237,12 +296,6 @@ app.prepare().then(() => {
       message
     }));
   }
-
-  // Start the server
-  server.listen(port, (err) => {
-    if (err) throw err;
-    console.log(`> Ready on http://${hostname}:${port}`);
-  });
 }).catch((err) => {
   console.error(err);
   process.exit(1);

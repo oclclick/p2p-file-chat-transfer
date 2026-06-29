@@ -1,9 +1,10 @@
+/* eslint-disable */
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const SCRATCH_DIR = 'C:\\Users\\maste\\.gemini\\antigravity-ide\\brain\\9d6da3e4-9a28-42e2-87af-24e7e0a51274\\scratch';
+const SCRATCH_DIR = path.join(__dirname, 'test_files');
 
 const FILES_TO_TEST = [
   'test.pdf',
@@ -33,7 +34,9 @@ async function runTest() {
   const context = await browser.newContext();
   
   const senderPage = await context.newPage();
+  senderPage.on('console', msg => console.log(`SENDER: ${msg.text()}`));
   const receiverPage = await context.newPage();
+  receiverPage.on('console', msg => console.log(`RECEIVER: ${msg.text()}`));
   
   console.log('Opening P2P Sender app on localhost:3000...');
   await senderPage.goto('http://localhost:3000');

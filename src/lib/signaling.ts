@@ -4,7 +4,7 @@ export interface SignalingCallbacks {
   onRoomJoined?: (code: string, peerId: string, isInitiator: boolean) => void;
   onPeerJoined?: (peerId: string) => void;
   onRoomReady?: (code: string, isInitiator: boolean) => void;
-  onSignalReceived?: (data: any) => void;
+  onSignalReceived?: (data: unknown) => void;
   onPeerDisconnected?: () => void;
   onError?: (error: { code?: string; message: string }) => void;
   onDisconnected?: () => void;
@@ -38,16 +38,19 @@ export class SignalingClient {
 
   private getDefaultUrl(): string {
     if (typeof window === 'undefined') return '';
-    
+
     // Check for explicit environment variable configuration
     if (process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL) {
       return process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL;
     }
-    
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const hostname = window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : '';
     
+    // In development, the signaling server runs on port 3001 to avoid Next.js HMR websocket interference.
+    const isDev = process.env.NODE_ENV === 'development';
+    const port = isDev ? ':3001' : (window.location.port ? `:${window.location.port}` : '');
+
     return `${protocol}//${hostname}${port}`;
   }
 
@@ -70,18 +73,21 @@ export class SignalingClient {
           this.reconnectAttempts = 0; // Reset reconnection attempts on success
           const openTimestamp = new Date().toISOString();
           console.log(`[${openTimestamp}] [SignalingClient] Connected to signaling server`);
-          
+
           this.startHeartbeat();
+
+          // If we have an existing session, restore it
+          if (this.roomCode && this.peerId) {
+            this.send({
+              type: 'reconnect_room',
+              code: this.roomCode,
+              peerId: this.peerId,
+              isInitiator: this.isInitiator
+            });
+          }
 
           if (this.callbacks.onConnected) {
             this.callbacks.onConnected();
-          }
-
-          // Automatically rejoin the active room if we were in one before disconnection
-          if (this.roomCode) {
-            const rejoinTimestamp = new Date().toISOString();
-            console.log(`[${rejoinTimestamp}] [SignalingClient] Connection re-established. Auto-rejoining room: ${this.roomCode}`);
-            this.joinRoom(this.roomCode);
           }
 
           resolve();
@@ -95,10 +101,10 @@ export class SignalingClient {
           this.isConnecting = false;
           this.socket = null;
           this.clearHeartbeat();
-          
+
           const closeTimestamp = new Date().toISOString();
           console.log(`[${closeTimestamp}] [SignalingClient] Disconnected from signaling server (Code: ${event.code}, Reason: ${event.reason || 'none'})`);
-          
+
           if (this.callbacks.onDisconnected) {
             this.callbacks.onDisconnected();
           }
@@ -112,13 +118,13 @@ export class SignalingClient {
           this.isConnecting = false;
           const errTimestamp = new Date().toISOString();
           console.error(`[${errTimestamp}] [SignalingClient] Signaling socket error:`, err);
-          
+
           if (this.callbacks.onError) {
             this.callbacks.onError({ message: 'Failed to connect to signaling server' });
           }
           reject(err);
         };
-      } catch (err: any) {
+      } catch (err) {
         this.isConnecting = false;
         reject(err);
       }
@@ -275,11 +281,11 @@ export class SignalingClient {
     this.send({ type: 'join_room', code: code.toUpperCase() });
   }
 
-  public sendSignal(data: any) {
+  public sendSignal(data: unknown) {
     this.send({ type: 'signal', data });
   }
 
-  private send(payload: any) {
+  private send(payload: Record<string, unknown> | unknown) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       console.error('[SignalingClient] Cannot send message: socket not open');
       return;
@@ -293,17 +299,17 @@ export class SignalingClient {
     this.peerId = null;
     this.isInitiator = false;
     this.clearHeartbeat();
-    
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    
+
     if (this.socket) {
       this.socket.close();
       this.socket = null;
     }
-    
+
     const timestamp = new Date().toISOString();
     console.log(`[${timestamp}] [SignalingClient] Intentionally disconnected`);
   }

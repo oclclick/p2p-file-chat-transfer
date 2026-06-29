@@ -16,7 +16,7 @@ export const loadSignalingSettings = (): SignalingSettings => {
   if (saved) {
     try {
       return JSON.parse(saved);
-    } catch (e) {
+    } catch {
       // Ignore
     }
   }
@@ -41,11 +41,14 @@ export const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, onSave }) =
   const [turnPassword, setTurnPassword] = useState('');
 
   useEffect(() => {
+    if (!isOpen) return;
     const settings = loadSignalingSettings();
-    setUseCustomTurn(settings.useCustomTurn);
-    setTurnServer(settings.turnServer || '');
-    setTurnUsername(settings.turnUsername || '');
-    setTurnPassword(settings.turnPassword || '');
+    setTimeout(() => {
+      setUseCustomTurn(settings.useCustomTurn);
+      setTurnServer(settings.turnServer || '');
+      setTurnUsername(settings.turnUsername || '');
+      setTurnPassword(settings.turnPassword || '');
+    }, 0);
   }, [isOpen]);
 
   const handleSave = (e: React.FormEvent) => {

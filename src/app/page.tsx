@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Copy, Check, Share2, ArrowLeft, ArrowLeftRight, HelpCircle } from 'lucide-react';
+import { Copy, Check, Share2, ArrowLeft, ArrowLeftRight } from 'lucide-react';
 import { ConnectionState, ChatMessage, FileTransfer, SignalingSettings } from '../types';
 import { Header } from '../components/Header';
 import { RoomSetup } from '../components/RoomSetup';
@@ -36,18 +36,6 @@ export default function Home() {
     setToasts((prev) => [...prev, { id, message, type }]);
   };
 
-  // Load configuration on mount
-  useEffect(() => {
-    setSettings(loadSignalingSettings());
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      cleanupConnection();
-    };
-  }, []);
-
   const cleanupConnection = () => {
     if (signalingClient.current) {
       signalingClient.current.disconnect();
@@ -58,6 +46,19 @@ export default function Home() {
       webrtcManager.current = null;
     }
   };
+
+  // Load configuration on mount
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSettings(loadSignalingSettings());
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupConnection();
+    };
+  }, []);
 
   const handleSettingsSave = (newSettings: SignalingSettings) => {
     setSettings(newSettings);
@@ -92,31 +93,30 @@ export default function Home() {
       // Connect to signaling server
       signalingClient.current = new SignalingClient({
         onConnected: () => {
-          if (signalingClient.current) {
-            signalingClient.current.createRoom();
-          }
+          console.log('Connected to signaling server');
         },
-        onRoomCreated: (code, peerId) => {
+        onRoomCreated: (code) => {
           setRoomCode(code);
           setConnectionState('waiting');
           setIsLoading(false);
           addToast(`Room created: ${code}`, 'success');
         },
-        onPeerJoined: (peerId) => {
+        onPeerJoined: () => {
           addToast('Peer has joined the room. Establishing connection...', 'info');
           // Creator acts as initiator
           if (webrtcManager.current) {
             webrtcManager.current.initialize(true);
           }
         },
-        onSignalReceived: (data) => {
+        onSignalReceived: (data: unknown) => {
           if (!webrtcManager.current) return;
-          if (data.type === 'offer') {
-            webrtcManager.current.handleOffer(data.sdp);
-          } else if (data.type === 'answer') {
-            webrtcManager.current.handleAnswer(data.sdp);
-          } else if (data.type === 'candidate') {
-            webrtcManager.current.handleCandidate(data.candidate);
+          const msg = data as { type: string; sdp?: string; candidate?: RTCIceCandidateInit };
+          if (msg.type === 'offer' && msg.sdp) {
+            webrtcManager.current.handleOffer(msg.sdp);
+          } else if (msg.type === 'answer' && msg.sdp) {
+            webrtcManager.current.handleAnswer(msg.sdp);
+          } else if (msg.type === 'candidate' && msg.candidate) {
+            webrtcManager.current.handleCandidate(msg.candidate);
           }
         },
         onPeerDisconnected: () => {
@@ -137,8 +137,9 @@ export default function Home() {
       });
 
       await signalingClient.current.connect();
-    } catch (err: any) {
-      addToast(`Room creation failed: ${err.message}`, 'error');
+      signalingClient.current.createRoom();
+    } catch (err) {
+      addToast(`Room creation failed: ${(err as Error).message}`, 'error');
       setIsLoading(false);
       setConnectionState('failed');
     }
@@ -166,11 +167,9 @@ export default function Home() {
 
       signalingClient.current = new SignalingClient({
         onConnected: () => {
-          if (signalingClient.current) {
-            signalingClient.current.joinRoom(code);
-          }
+          console.log('Connected to signaling server');
         },
-        onRoomJoined: (joinedCode, peerId, isInitiator) => {
+        onRoomJoined: (joinedCode) => {
           setRoomCode(joinedCode);
           setConnectionState('connecting');
           setIsLoading(false);
@@ -180,14 +179,15 @@ export default function Home() {
             webrtcManager.current.initialize(false);
           }
         },
-        onSignalReceived: (data) => {
+        onSignalReceived: (data: unknown) => {
           if (!webrtcManager.current) return;
-          if (data.type === 'offer') {
-            webrtcManager.current.handleOffer(data.sdp);
-          } else if (data.type === 'answer') {
-            webrtcManager.current.handleAnswer(data.sdp);
-          } else if (data.type === 'candidate') {
-            webrtcManager.current.handleCandidate(data.candidate);
+          const msg = data as { type: string; sdp?: string; candidate?: RTCIceCandidateInit };
+          if (msg.type === 'offer' && msg.sdp) {
+            webrtcManager.current.handleOffer(msg.sdp);
+          } else if (msg.type === 'answer' && msg.sdp) {
+            webrtcManager.current.handleAnswer(msg.sdp);
+          } else if (msg.type === 'candidate' && msg.candidate) {
+            webrtcManager.current.handleCandidate(msg.candidate);
           }
         },
         onPeerDisconnected: () => {
@@ -208,8 +208,9 @@ export default function Home() {
       });
 
       await signalingClient.current.connect();
-    } catch (err: any) {
-      addToast(`Failed to join room: ${err.message}`, 'error');
+      signalingClient.current.joinRoom(code);
+    } catch (err) {
+      addToast(`Failed to join room: ${(err as Error).message}`, 'error');
       setIsLoading(false);
       setConnectionState('failed');
     }
@@ -290,11 +291,14 @@ export default function Home() {
     const urlParams = new URLSearchParams(window.location.search);
     const room = urlParams.get('room');
     if (room && room.trim().length === 6 && roomCode === '') {
-      addToast(`Found room code in URL: ${room}. Joining...`, 'info');
-      handleJoinRoom(room.trim().toUpperCase());
+      setTimeout(() => {
+        addToast(`Found room code in URL: ${room}. Joining...`, 'info');
+        handleJoinRoom(room.trim().toUpperCase());
+      }, 0);
       // Clean query parameter after trigger
       window.history.replaceState({}, document.title, window.location.pathname);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
