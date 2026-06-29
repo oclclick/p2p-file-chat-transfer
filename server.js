@@ -47,19 +47,30 @@ app.prepare().then(() => {
   // Attach WebSocket server explicitly
   const wss = new WebSocketServer({ noServer: true });
 
-  // Start the server FIRST.
-  // Next.js patches server.listen to inject its HMR 'upgrade' listener.
-  const signalingServer = createServer();
-  signalingServer.on('upgrade', (req, socket, head) => {
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
+  if (dev) {
+    // Start the server FIRST.
+    // Next.js patches server.listen to inject its HMR 'upgrade' listener.
+    const signalingServer = createServer();
+    signalingServer.on('upgrade', (req, socket, head) => {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
     });
-  });
-  
-  const signalingPort = process.env.SIGNALING_PORT || 3001;
-  signalingServer.listen(signalingPort, () => {
-    console.log(`> Signaling server ready on ws://${hostname}:${signalingPort}`);
-  });
+    
+    const signalingPort = process.env.SIGNALING_PORT || 3001;
+    signalingServer.listen(signalingPort, () => {
+      console.log(`> Signaling server ready on ws://${hostname}:${signalingPort}`);
+    });
+  } else {
+    // In production, HMR is disabled. Attach websocket signaling directly
+    // to the main HTTP server so it works on the single exposed Render port.
+    server.on('upgrade', (req, socket, head) => {
+      // Allow websocket upgrades
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    });
+  }
 
   server.listen(port, (err) => {
     if (err) throw err;

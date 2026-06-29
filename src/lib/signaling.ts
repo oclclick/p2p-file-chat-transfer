@@ -15,6 +15,7 @@ export class SignalingClient {
   private callbacks: SignalingCallbacks;
   private url: string;
   private isConnecting = false;
+  private connectionPromise: Promise<void> | null = null;
 
   // Session state tracking
   private roomCode: string | null = null;
@@ -55,14 +56,18 @@ export class SignalingClient {
   }
 
   public connect(): Promise<void> {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      return Promise.resolve();
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+      return this.connectionPromise || Promise.resolve();
+    }
+
+    if (this.connectionPromise) {
+      return this.connectionPromise;
     }
 
     this.isConnecting = true;
     this.intentionalDisconnect = false;
 
-    return new Promise((resolve, reject) => {
+    this.connectionPromise = new Promise((resolve, reject) => {
       try {
         const timestamp = new Date().toISOString();
         console.log(`[${timestamp}] [SignalingClient] Connecting to signaling server at ${this.url}`);
@@ -99,6 +104,7 @@ export class SignalingClient {
 
         this.socket.onclose = (event) => {
           this.isConnecting = false;
+          this.connectionPromise = null;
           this.socket = null;
           this.clearHeartbeat();
 
@@ -116,6 +122,7 @@ export class SignalingClient {
 
         this.socket.onerror = (err) => {
           this.isConnecting = false;
+          this.connectionPromise = null;
           const errTimestamp = new Date().toISOString();
           console.error(`[${errTimestamp}] [SignalingClient] Signaling socket error:`, err);
 
@@ -126,9 +133,12 @@ export class SignalingClient {
         };
       } catch (err) {
         this.isConnecting = false;
+        this.connectionPromise = null;
         reject(err);
       }
     });
+
+    return this.connectionPromise;
   }
 
   private scheduleReconnect() {
